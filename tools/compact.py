@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tái cấu trúc dataset Parquet của dashboard — NHIỆM VỤ 4.  CHƯA CÓ LOGIC.
+"""Tái cấu trúc dataset Parquet của dashboard — BÀI MỞ RỘNG A.
 
 Hiện trạng: `data/gold_events/` gồm 5.000 file, mỗi file vài chục KB, không
 partition, thứ tự hàng ngẫu nhiên.
@@ -63,27 +63,31 @@ def main() -> int:
     n_src = len(list(SRC.glob("*.parquet")))
     print(f"  nguồn : {SRC}  ({n_src:,} file)")
 
-    # TODO(nhiệm vụ 4): hiện thực khung COPY ... TO ... ở phần docstring.
-    #
-    #   con.execute(f"""
-    #       copy (
-    #           select * from read_parquet('{SRC}/*.parquet')
-    #           order by ...
-    #       ) to '{DST}' (
-    #           format parquet,
-    #           partition_by (...),
-    #           overwrite_or_ignore,
-    #           row_group_size ...
-    #       )
-    #   """)
-    #
-    # Sau đó kiểm tra không mất hàng nào:
-    #
-    #   assert <số row dataset cũ> == <số row dataset mới>
+    if DST.exists():
+        import shutil
+        shutil.rmtree(DST)
+    DST.mkdir(parents=True, exist_ok=True)
 
-    print("\n  tools/compact.py chưa được hiện thực — đây là nhiệm vụ 4.")
-    print("  Mở file này, đọc phần KHUNG THỰC HIỆN ở đầu file và điền vào TODO.")
-    print("  Hướng dẫn từng bước: GUIDE.md mục 4.\n")
+    src_rows = con.execute(f"select count(*) from read_parquet('{SRC}/*.parquet')").fetchone()[0]
+
+    con.execute(f"""
+        copy (
+            select * from read_parquet('{SRC}/*.parquet')
+            order by event_date, customer_name, event_time
+        ) to '{DST}' (
+            format parquet,
+            partition_by (event_date),
+            overwrite_or_ignore,
+            row_group_size 2048
+        )
+    """)
+
+    dst_files = list(DST.rglob("*.parquet"))
+    dst_rows = con.execute(f"select count(*) from read_parquet('{DST}/**/*.parquet', hive_partitioning = true)").fetchone()[0]
+    print(f"  đích  : {DST}  ({len(dst_files):,} file, {dst_rows:,} rows)")
+
+    assert src_rows == dst_rows, f"Số hàng không khớp: {src_rows} != {dst_rows}"
+    print(f"  [compact] Hoàn thành! Đã nén {n_src:,} file thành {len(dst_files):,} file.")
     return 0
 
 
